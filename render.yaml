@@ -4,7 +4,7 @@ services:
     env: docker
     plan: free
     buildCommand: docker build -t urbanvibe-backend .
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    buildCommand: docker build -t urbanvibe-backend .
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
