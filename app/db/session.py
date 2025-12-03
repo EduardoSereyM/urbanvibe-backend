@@ -10,8 +10,13 @@ logger = logging.getLogger(__name__)
 safe_url = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "REDACTED"
 logger.info(f"Connecting to database at: ...@{safe_url}")
 
+# Fix for Render/Heroku providing postgresql:// but we need postgresql+asyncpg://
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     pool_pre_ping=True,
     poolclass=NullPool,
     connect_args={
