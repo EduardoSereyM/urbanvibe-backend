@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: urbanvibe-backend
+    env: docker
+    plan: free
+    buildCommand: docker build -t urbanvibe-backend .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "http://localhost:19006,http://localhost:8081"
