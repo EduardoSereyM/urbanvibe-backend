@@ -2,7 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
-from sqlalchemy import select, and_, or_, text
+from sqlalchemy import select, and_, or_, text, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.functions import ST_SetSRID, ST_MakePoint
 from fastapi import HTTPException, status
@@ -13,31 +13,38 @@ from app.api.v1.venues_admin.schemas import (
     VenueSummaryForOwner,
     MyVenuesResponse,
     VenueB2BDetail,
+    VenueB2BDetail,
     VenueFeaturesConfig,
     OpeningHoursConfig,
     VenueAddress,
+    ActivityItem, 
 )
+from app.models.reviews import Review 
+from app.models.checkins import Checkin 
+from app.models.profiles import Profile
 
 
 async def check_b2b_permissions(
     db: AsyncSession,
     user_id: UUID,
-    is_super_admin: bool = False
+    is_super_admin: bool = False,
+    is_global_venue_owner: bool = False
 ) -> bool:
     """
     Verifica si el usuario tiene permisos B2B.
     Retorna True si el usuario tiene al menos uno de estos roles:
     - SUPER_ADMIN (via JWT claim)
-    - VENUE_OWNER
-    - VENUE_MANAGER
-    - VENUE_STAFF
-    
-    Roles que NO tienen acceso B2B:
-    - APP_USER
-    - APP_PREMIUM_USER
+    - VENUE_OWNER (Global Role via JWT claim)
+    - VENUE_OWNER (Effective Role via ownership)
+    - VENUE_MANAGER (Effective Role via venue_team)
+    - VENUE_STAFF (Effective Role via venue_team)
     """
     # SUPER_ADMIN siempre tiene acceso
     if is_super_admin:
+        return True
+        
+    # VENUE_OWNER Global siempre tiene acceso (aunque no tenga venues aún)
+    if is_global_venue_owner:
         return True
     
     # Verificar si el usuario es owner de algún venue
@@ -77,7 +84,8 @@ async def check_b2b_permissions(
 async def get_user_venues(
     db: AsyncSession,
     user_id: UUID,
-    is_super_admin: bool = False
+    is_super_admin: bool = False,
+    is_global_venue_owner: bool = False
 ) -> MyVenuesResponse:
     """
     Obtiene todos los venues donde el usuario tiene algún rol B2B.
@@ -87,7 +95,7 @@ async def get_user_venues(
         HTTPException 403: Si el usuario no tiene permisos B2B
     """
     # ✅ VERIFICACIÓN DE PERMISOS B2B
-    has_b2b_access = await check_b2b_permissions(db, user_id, is_super_admin)
+    has_b2b_access = await check_b2b_permissions(db, user_id, is_super_admin, is_global_venue_owner)
     
     if not has_b2b_access:
         raise HTTPException(
@@ -232,6 +240,89 @@ async def create_founder_venue(
     return await _map_to_b2b_detail(new_venue)
 
 
+async def update_venue_b2b(
+    db: AsyncSession,
+    venue_id: UUID,
+    venue_data: VenueCreate,
+    user_id: UUID,
+    is_super_admin: bool = False
+) -> VenueB2BDetail:
+    """
+    Actualiza un venue existente.
+    """
+    # 1. Fetch
+    stmt = select(Venue).where(Venue.id == venue_id)
+    result = await db.execute(stmt)
+    venue = result.scalar_one_or_none()
+
+    if not venue:
+        raise HTTPException(status_code=404, detail="Venue not found")
+
+    # 2. Auth
+    if not is_super_admin and venue.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso para editar este local")
+
+    # 3. Update fields
+    # Basic fields
+    if venue_data.name: venue.name = venue_data.name
+    if venue_data.slogan: venue.slogan = venue_data.slogan
+    if venue_data.overview: venue.overview = venue_data.overview
+    if venue_data.category_id: venue.category_id = venue_data.category_id
+    
+    # Location
+    if venue_data.latitude: venue.latitude = venue_data.latitude
+    if venue_data.longitude: venue.longitude = venue_data.longitude
+    # Update PostGIS point
+    if venue_data.latitude and venue_data.longitude:
+         venue.location = f"POINT({venue_data.longitude} {venue_data.latitude})"
+
+    # Address
+    if venue_data.address:
+        venue.address_display = venue_data.address.address_display
+        venue.city = venue_data.address.city
+        venue.region_state = venue_data.address.region_state
+        venue.country_code = venue_data.address.country_code
+
+    # Media
+    if venue_data.logo_url: venue.logo_url = venue_data.logo_url
+    if venue_data.cover_image_urls: venue.cover_image_urls = venue_data.cover_image_urls
+    
+    # Details
+    if venue_data.price_tier: venue.price_tier = venue_data.price_tier
+    if venue_data.payment_methods: venue.payment_methods = venue_data.payment_methods
+    
+    # JSONB
+    if venue_data.opening_hours:
+         venue.opening_hours = venue_data.opening_hours.model_dump()
+    
+    # Attributes
+    venue.connectivity_features = venue_data.connectivity_features
+    venue.accessibility_features = venue_data.accessibility_features
+    venue.space_features = venue_data.space_features
+    venue.comfort_features = venue_data.comfort_features
+    venue.audience_features = venue_data.audience_features
+    venue.entertainment_features = venue_data.entertainment_features
+    venue.dietary_options = venue_data.dietary_options
+    venue.access_features = venue_data.access_features
+    venue.security_features = venue_data.security_features
+    venue.mood_tags = venue_data.mood_tags
+    venue.occasion_tags = venue_data.occasion_tags
+    
+    venue.capacity_estimate = venue_data.capacity_estimate
+    venue.seated_capacity = venue_data.seated_capacity
+    venue.standing_allowed = venue_data.standing_allowed
+    venue.noise_level = venue_data.noise_level
+
+    # Status
+    if venue_data.operational_status: venue.operational_status = venue_data.operational_status
+    
+    # Commit
+    await db.commit()
+    await db.refresh(venue)
+    
+    return await _map_to_b2b_detail(venue)
+
+
 async def get_venue_b2b_detail(
     db: AsyncSession,
     venue_id: UUID,
@@ -270,7 +361,27 @@ async def get_venue_b2b_detail(
             detail="You don't have permission to access this venue"
         )
     
-    return await _map_to_b2b_detail(venue)
+    detail = await _map_to_b2b_detail(venue)
+    
+    # Populate Recent Activity
+    detail.recent_activity = await _get_recent_activity(db, venue_id)
+
+    # Calculate Unread Reviews (based on last_read_reviews_at)
+    # Calculate Unread Reviews (based on last_read_reviews_at)
+    if venue.last_read_reviews_at:
+        count_query = select(func.count()).select_from(Review).where(
+            and_(
+                Review.venue_id == venue_id,
+                Review.created_at > venue.last_read_reviews_at,
+                Review.deleted_at.is_(None)
+            )
+        )
+        detail.unread_reviews_count = await db.scalar(count_query) or 0
+    else:
+        # If never read, all reviews are unread
+        detail.unread_reviews_count = venue.review_count or 0
+    
+    return detail
 
 
 async def _map_to_b2b_detail(venue: Venue) -> VenueB2BDetail:
@@ -302,6 +413,14 @@ async def _map_to_b2b_detail(venue: Venue) -> VenueB2BDetail:
             region_state=venue.region_state,
             country_code=venue.country_code
         )
+    
+    # Recent Activity (V12.4)
+    # We populate this here or via a separate call. To be efficient, we do it here if possible, 
+    # but strictly get_venue_b2b_detail calls _map_to_b2b_detail which might not have async db access easily if passed only object.
+    # Wait, _map_to_b2b_detail takes only 'venue'. It cannot query DB.
+    # So we must fetch activity in 'get_venue_b2b_detail' and pass it, OR we make _map_to_b2b_detail async?
+    # It is async. But it doesn't take 'db'.
+    # We should fetch activity in the caller and set it.
     
     return VenueB2BDetail(
         id=venue.id,
@@ -629,3 +748,84 @@ async def validate_reward_qr(
     )
 
 
+
+async def _get_recent_activity(db: AsyncSession, venue_id: UUID, limit: int = 10) -> List[ActivityItem]:
+    """
+    Obtiene una lista combinada de reseñas y check-ins recientes.
+    """
+    # 1. Fetch recent reviews
+    stmt_reviews = (
+        select(Review, Profile)
+        .join(Profile, Review.user_id == Profile.id)
+        .where(Review.venue_id == venue_id, Review.deleted_at.is_(None))
+        .order_by(Review.created_at.desc())
+        .limit(limit)
+    )
+    result_reviews = await db.execute(stmt_reviews)
+    reviews = result_reviews.all()
+    
+    # 2. Fetch recent checkins
+    stmt_checkins = (
+        select(Checkin, Profile)
+        .join(Profile, Checkin.user_id == Profile.id)
+        .where(Checkin.venue_id == venue_id)
+        .order_by(Checkin.created_at.desc())
+        .limit(limit)
+    )
+    result_checkins = await db.execute(stmt_checkins)
+    checkins = result_checkins.all()
+    
+    items = []
+    
+    for r, p in reviews:
+        display_name = p.display_name or p.username or "Usuario"
+        items.append(ActivityItem(
+            id=str(r.id),
+            type="review",
+            title=f"{display_name} dejó una reseña",
+            subtitle=f"{r.general_score} estrellas - '{r.comment[:50]}...'" if r.comment else f"{r.general_score} estrellas",
+            timestamp=r.created_at,
+            metadata={"general_score": r.general_score, "review_id": str(r.id)}
+        ))
+        
+    for c, p in checkins:
+        display_name = p.display_name or p.username or "Usuario"
+        items.append(ActivityItem(
+            id=str(c.id),
+            type="checkin",
+            title=f"{display_name} hizo Check-in",
+            subtitle=f"Estado: {c.status}",
+            timestamp=c.created_at,
+            metadata={"status": c.status, "checkin_id": c.id}
+        ))
+        
+    # Sort and slice
+    items.sort(key=lambda x: x.timestamp, reverse=True)
+    return items[:limit]
+
+
+async def mark_reviews_as_read(
+        db: AsyncSession,
+        venue_id: UUID,
+        user_id: UUID,
+        is_super_admin: bool = False
+    ) -> bool:
+    """
+    Actualiza last_read_reviews_at al momento actual.
+    """
+    # 1. Fetch Venue
+    result = await db.execute(select(Venue).where(Venue.id == venue_id))
+    venue = result.scalar_one_or_none()
+
+    if not venue:
+        raise HTTPException(status_code=404, detail="Venue not found")
+
+    # 2. Check Permissions
+    if not is_super_admin and venue.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    # 3. Update Timestamp
+    venue.last_read_reviews_at = datetime.now()
+    await db.commit()
+    
+    return True

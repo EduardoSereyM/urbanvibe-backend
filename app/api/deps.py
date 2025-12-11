@@ -65,6 +65,36 @@ async def get_current_user(
 
     return user
 
+async def get_current_user_id(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+) -> UUID:
+    """
+    Extracts User ID from JWT without verifying existence in DB.
+    Useful for endpoints that handle 'first login' or missing profile scenarios.
+    """
+    token = credentials.credentials
+
+    # DEMO MODE
+    if settings.DEMO_MODE and token == "demo":
+        return UUID("a09db2c6-ee06-49df-b0f6-f55c6184a83c")
+
+    try:
+        payload = decode_supabase_jwt(token)
+        user_id_str = payload.get("sub")
+        if user_id_str is None:
+             raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials (no sub)",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return UUID(user_id_str)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Could not validate credentials: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 security_optional = HTTPBearer(auto_error=False)
 

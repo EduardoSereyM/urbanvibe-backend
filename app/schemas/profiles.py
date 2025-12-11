@@ -17,4 +17,18 @@ class ProfileBase(BaseModel):
 class ProfileResponse(ProfileBase):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
-    roles: List[str] = []  # Lista de roles del usuario (ej: ["VENUE_OWNER", "SUPER_ADMIN"])
+    username: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+    role_id: int | None = None  # SINGLE SOURCE OF TRUTH
+    role_name: str | None = None
+    roles: List[str] = []  # Deprecated but kept for backward compat if needed, will mirror role_name
+
+
+class ProfileUpdate(BaseModel):
+    """Schema para actualizar el perfil del usuario."""
+    avatar_url: str | None = None
+    # Future-proof: se pueden agregar más campos aquí
+    preferences: dict | None = None
+
+

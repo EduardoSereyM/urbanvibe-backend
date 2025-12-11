@@ -35,32 +35,57 @@ router = APIRouter(
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-def get_is_super_admin(
-    token: Annotated[str, Depends(oauth2_scheme)]
+async def get_is_super_admin(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[AsyncSession, Depends(deps.get_db)]
 ) -> bool:
     """
-    Verifica si el usuario tiene el claim app_role = 'SUPER_ADMIN' en el JWT.
-    También verifica whitelist de emails para Super Admin.
+    Verifica si el usuario es SUPER_ADMIN.
+    Orden de verificación:
+    1. Whitelist de emails (Acceso de emergencia/Bootstrap)
+    2. Claim 'app_role' en el JWT (Optimización futura)
+    3. Consulta a la Base de Datos (Fuente de verdad)
     """
+    # 1. Acceso de emergencia para desarrollo/bootstrap
+    # Permite acceso inicial si la DB aún no tiene roles configurados
     if token == "demo":
         return True
-        
+
     from app.core.security import decode_supabase_jwt
+    from sqlalchemy import text
+    
     try:
         payload = decode_supabase_jwt(token)
+        email = payload.get("email")
+        user_id = payload.get("sub")
         
-        # 1. Check explicit claim
+        # 2. Whitelist (Mantener como fallback de seguridad)
+        if email in ["administradorapp@urbanvibe.cl", "admin@urbanvibe.cl"]:
+            return True
+            
+        # 3. Check explicit claim (Optimización)
         app_role = payload.get("app_role")
         if app_role == "SUPER_ADMIN":
             return True
+
+        # 4. DATABASE CHECK (Fuente de Verdad)
+        # Si no pasó por whitelist ni claim, consultamos la DB
+        if user_id:
+            query = text("""
+                SELECT r.name 
+                FROM public.profiles p
+                JOIN public.app_roles r ON p.role_id = r.id
+                WHERE p.id = :user_id
+            """)
+            result = await db.execute(query, {"user_id": user_id})
+            role_name = result.scalar()
             
-        # 2. Check email whitelist
-        email = payload.get("email")
-        if email == "administradorapp@urbanvibe.cl":
-            return True
+            if role_name == "SUPER_ADMIN":
+                return True
             
         return False
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ Auth Check Error: {e}")
         return False
 
 

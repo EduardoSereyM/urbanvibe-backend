@@ -44,3 +44,45 @@ async def login(
         token_type="bearer"
     )
 
+
+@router.post("/claim-business-role")
+async def claim_business_role(
+    current_user: Annotated[deps.Profile, Depends(deps.get_current_user)],
+):
+    """
+    Asigna explícitamente el rol VENUE_OWNER al usuario actual.
+    Se usa cuando un usuario se registra con intención de negocio.
+    """
+    from app.core.supabase_admin import get_supabase_admin
+    
+    try:
+        admin_client = get_supabase_admin()
+        user_id = str(current_user.id)
+        
+        # 1. Obtener usuario actual de Supabase para ver metadata actual
+        user_response = admin_client.auth.admin.get_user_by_id(user_id)
+        user = user_response.user
+        
+        current_metadata = user.app_metadata or {}
+        current_role = current_metadata.get("app_role")
+        
+        # 2. Si ya tiene el rol, no hacer nada
+        if current_role == "VENUE_OWNER":
+            return {"message": "User already has VENUE_OWNER role"}
+            
+        # 3. Actualizar app_metadata
+        # Nota: Supabase Auth usa 'app_metadata' para claims seguros que van al JWT
+        admin_client.auth.admin.update_user_by_id(
+            user_id, 
+            {"app_metadata": {**current_metadata, "app_role": "VENUE_OWNER"}}
+        )
+        
+        return {"message": "Role VENUE_OWNER assigned successfully"}
+        
+    except Exception as e:
+        print(f"❌ Error assigning role: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assign role: {str(e)}"
+        )
+

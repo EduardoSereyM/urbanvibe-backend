@@ -6,10 +6,39 @@ from shapely.geometry import Point
 
 class VenueBase(BaseModel):
     name: str
+    slogan: Optional[str] = None
+    overview: Optional[str] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    
+    # Branding
+    logo_url: Optional[str] = None
+    cover_image_urls: Optional[List[str]] = []
+    menu_media_urls: Optional[List[Dict[str, Any]]] = []
+    
+    # Contact & Loc
+    address_display: Optional[str] = None
+    city: Optional[str] = None
+    region_state: Optional[str] = None
+    country_code: Optional[str] = "CL"
+    website: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    
+    # Price & Ops
+    price_tier: Optional[int] = 1
+    currency_code: Optional[str] = "CLP"
+    operational_status: Optional[str] = "open"
+    opening_hours: Optional[Dict[str, Any]] = {}
+
     trust_tier: Optional[str] = None
     is_verified: bool = False
+    verification_status: Optional[str] = None
+    is_founder_venue: Optional[bool] = False
     verified_visits_monthly: int = 0
     rating_average: float = 0.0
+    review_count: int = 0
+    favorites_count: int = 0
     
     # Extended Attributes
     connectivity_features: Optional[List[str]] = []
@@ -48,41 +77,67 @@ class VenueResponse(VenueBase):
             try:
                 shape = to_shape(data.location)
                 if isinstance(shape, Point):
-                    # We can't modify the SQLAlchemy instance directly safely if it's attached to a session in a way that forbids it,
-                    # but Pydantic v2 validation runs on the data.
-                    # We need to return a dict or object that has 'location' as a dict.
-                    # Since we are in 'before' mode, 'data' is the ORM object.
-                    # We can construct a dict with the fields we need.
-                    
-                    # Convert ORM object to dict to modify it safely for Pydantic
-                    # This is a bit expensive but safe. 
-                    # Alternatively, we can just return the object if we didn't need to transform 'location'.
-                    # But we DO need to transform location.
-                    
+                    # Convert ORM object to dict to include all fields
                     return {
                         "id": data.id,
                         "name": data.name,
+                        "slogan": data.slogan,
+                        "overview": data.overview,
+                        "category_id": data.category_id,
+                        "category_name": getattr(data, 'category_name', None),
+                        
+                        # Branding
+                        "logo_url": data.logo_url,
+                        "cover_image_urls": data.cover_image_urls or [],
+                        "menu_media_urls": data.menu_media_urls or [],
+                        
+                        # Contact & Location
+                        "address_display": data.address_display,
+                        "city": data.city,
+                        "region_state": data.region_state,
+                        "country_code": data.country_code,
+                        "website": data.website,
+                        "contact_email": data.contact_email,
+                        "contact_phone": data.contact_phone,
+                        
+                        # Price & Operations
+                        "price_tier": data.price_tier,
+                        "currency_code": data.currency_code,
+                        "operational_status": data.operational_status,
+                        "opening_hours": data.opening_hours or {},
+                        
+                        # Trust & Metrics - use database values directly
                         "trust_tier": data.trust_tier,
                         "is_verified": data.is_verified,
+                        "verification_status": data.verification_status,
+                        "is_founder_venue": data.is_founder_venue,
                         "verified_visits_monthly": data.verified_visits_monthly,
-                        "rating_average": data.rating_average,
+                        "rating_average": float(data.rating_average) if data.rating_average else 0.0,
+                        "review_count": data.review_count or 0,
+                        "favorites_count": (lambda: (
+                            print(f"🔍 SCHEMA: data.favorites_count = {data.favorites_count}"),
+                            print(f"🔍 SCHEMA: hasattr = {hasattr(data, 'favorites_count')}"),
+                            print(f"🔍 SCHEMA: Final value = {data.favorites_count or 0}"),
+                            data.favorites_count or 0
+                        )[3])(),
+                        
                         "location": {"lat": shape.y, "lng": shape.x},
                         
-                        # Include extended attributes in the dict
-                        "connectivity_features": data.connectivity_features,
-                        "accessibility_features": data.accessibility_features,
-                        "space_features": data.space_features,
-                        "comfort_features": data.comfort_features,
-                        "audience_features": data.audience_features,
-                        "entertainment_features": data.entertainment_features,
-                        "dietary_options": data.dietary_options,
-                        "access_features": data.access_features,
-                        "security_features": data.security_features,
-                        "mood_tags": data.mood_tags,
-                        "occasion_tags": data.occasion_tags,
-                        "music_profile": data.music_profile,
-                        "crowd_profile": data.crowd_profile,
-                        "pricing_profile": data.pricing_profile,
+                        # Extended attributes
+                        "connectivity_features": data.connectivity_features or [],
+                        "accessibility_features": data.accessibility_features or [],
+                        "space_features": data.space_features or [],
+                        "comfort_features": data.comfort_features or [],
+                        "audience_features": data.audience_features or [],
+                        "entertainment_features": data.entertainment_features or [],
+                        "dietary_options": data.dietary_options or [],
+                        "access_features": data.access_features or [],
+                        "security_features": data.security_features or [],
+                        "mood_tags": data.mood_tags or [],
+                        "occasion_tags": data.occasion_tags or [],
+                        "music_profile": data.music_profile or {},
+                        "crowd_profile": data.crowd_profile or {},
+                        "pricing_profile": data.pricing_profile or {},
                         "capacity_estimate": data.capacity_estimate,
                         "seated_capacity": data.seated_capacity,
                         "standing_allowed": data.standing_allowed,

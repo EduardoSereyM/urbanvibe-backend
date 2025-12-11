@@ -716,9 +716,14 @@ async def get_all_users(
             p.points_current,
             u.created_at,
             u.last_sign_in_at,
-            CASE WHEN u.banned_until IS NULL THEN true ELSE false END as is_active
+            CASE WHEN u.banned_until IS NULL THEN true ELSE false END as is_active,
+            p.username,
+            ar.name as role_name,
+            p.full_name,
+            p.display_name as profile_display_name
         FROM public.profiles p
         JOIN auth.users u ON p.id = u.id
+        LEFT JOIN public.app_roles ar ON p.role_id = ar.id
     """
     
     wheres = []
@@ -761,23 +766,32 @@ async def get_all_users(
     
     users = []
     for row in result:
-        # Calcular roles (simplificado)
-        roles = ["APP_USER"]
-        # Check if owner
-        owner_check = await db.execute(select(func.count(Venue.id)).where(Venue.owner_id == row[0]))
-        if (owner_check.scalar() or 0) > 0:
-            roles.append("VENUE_OWNER")
+        # Calcular roles (Usar rol de base de datos)
+        roles = []
+        if row[9]: # role_name from DB
+            roles.append(row[9])
+        else:
+            roles.append("APP_USER") # Fallback
             
+        # Check if owner (Legacy check, optional display)
+        # owner_check = await db.execute(select(func.count(Venue.id)).where(Venue.owner_id == row[0]))
+        # if (owner_check.scalar() or 0) > 0 and "VENUE_OWNER" not in roles:
+        #     roles.append("VENUE_OWNER")
+            
+        # Name resolution: username > profile.display_name > profile.full_name > auth.display_name > Sin nombre
+        final_display_name = row[11] or row[10] or row[2] or "Sin nombre"
+
         users.append(UserAdminListItem(
             id=UUID(str(row[0])),
             email=row[1],
-            display_name=row[2],
+            display_name=final_display_name,
             reputation_score=row[3] or 0,
             points_current=row[4] or 0,
             roles=roles,
             created_at=row[5],
             last_sign_in_at=row[6],
             is_active=row[7],
+            username=row[8],
             total_venues=0, # TODO: count
             total_reviews=0 # TODO: count
         ))
@@ -797,13 +811,13 @@ async def get_user_detail(
     """
     Obtiene detalle de usuario.
     """
-    # Query profile + auth user
+    # Query profile + auth user + role
     result = await db.execute(
         text("""
             SELECT 
                 p.id,
                 u.email,
-                u.raw_user_meta_data->>'display_name' as display_name,
+                p.display_name,
                 p.reputation_score,
                 p.points_current,
                 p.points_lifetime,
@@ -811,9 +825,35 @@ async def get_user_detail(
                 u.last_sign_in_at,
                 u.email_confirmed_at,
                 u.phone,
-                u.phone_confirmed_at
+                u.phone_confirmed_at,
+                p.username,
+                p.full_name,
+                p.national_id,
+                p.birth_date,
+                p.gender,
+                p.avatar_url,
+                p.bio,
+                p.website,
+                p.status,
+                p.is_verified,
+                p.is_influencer,
+                p.role_id,
+                ar.name as role_name,
+                p.reviews_count,
+                p.photos_count,
+                p.verified_checkins_count,
+                p.current_level_id,
+                p.preferences,
+                p.favorite_cuisines,
+                p.price_preference,
+                p.current_city,
+                p.referral_code,
+                p.referral_source,
+                p.referred_by_user_id,
+                CASE WHEN u.banned_until IS NULL THEN true ELSE false END as is_active
             FROM public.profiles p
             JOIN auth.users u ON p.id = u.id
+            LEFT JOIN public.app_roles ar ON p.role_id = ar.id
             WHERE p.id = :user_id
         """),
         {"user_id": str(user_id)}
@@ -834,18 +874,14 @@ async def get_user_detail(
             is_active=True
         ))
         
-    # Construct roles
-    roles = []
+    # Construct legacy roles list for compatibility
+    roles_list = []
+    if row[23]: # role_name
+        roles_list.append(UserRoleInfo(role_name=row[23], is_active=True))
+        
+    # Also add venue owner role if applicable
     if venues_owned:
-        for v in venues_owned:
-            roles.append(UserRoleInfo(
-                role_name="VENUE_OWNER",
-                venue_id=v.id,
-                venue_name=v.name,
-                assigned_at=row[6] # Approximate
-            ))
-    else:
-        roles.append(UserRoleInfo(role_name="APP_USER", is_active=True))
+         roles_list.append(UserRoleInfo(role_name="VENUE_OWNER", is_active=True))
 
     return UserAdminDetail(
         id=UUID(str(row[0])),
@@ -854,7 +890,47 @@ async def get_user_detail(
         reputation_score=row[3] or 0,
         points_current=row[4] or 0,
         points_lifetime=row[5] or 0,
-        roles=roles,
+        
+        # Identity
+        username=row[11],
+        full_name=row[12],
+        national_id=row[13],
+        birth_date=row[14],
+        gender=row[15],
+        avatar_url=row[16],
+        bio=row[17],
+        website=row[18],
+        
+        # Status & Flags
+        status=row[19],
+        is_verified=row[20] or False,
+        is_influencer=row[21] or False,
+        is_active=row[35],
+        
+        # Role
+        role_id=row[22],
+        role_name=row[23],
+        
+        # Gamification
+        reviews_count=row[24] or 0,
+        photos_count=row[25] or 0,
+        verified_checkins_count=row[26] or 0,
+        current_level_id=row[27],
+        
+        # Preferences
+        preferences=row[28],
+        favorite_cuisines=row[29],
+        price_preference=row[30],
+        
+        # Location
+        current_city=row[31],
+        
+        # Referral
+        referral_code=row[32],
+        referral_source=row[33],
+        referred_by_user_id=row[34],
+        
+        roles=roles_list,
         auth_info=UserAuthInfo(
             created_at=row[6],
             last_sign_in_at=row[7],
@@ -863,7 +939,9 @@ async def get_user_detail(
             phone_confirmed_at=row[10]
         ),
         activity=UserActivityInfo(
-            total_venues_owned=len(venues_owned)
+            total_venues_owned=len(venues_owned),
+            total_reviews=row[24] or 0,
+            total_check_ins=row[26] or 0
         ),
         venues_owned=venues_owned
     )
@@ -885,27 +963,89 @@ async def update_user(
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
         
+    # Standard Fields
+    if user_update.username is not None:
+        profile.username = user_update.username
+    if user_update.full_name is not None:
+        profile.full_name = user_update.full_name
+    if user_update.display_name is not None:
+        profile.display_name = user_update.display_name
+    if user_update.national_id is not None:
+        profile.national_id = user_update.national_id
+    if user_update.birth_date is not None:
+        profile.birth_date = user_update.birth_date
+    if user_update.gender is not None:
+        profile.gender = user_update.gender
+    if user_update.avatar_url is not None:
+        profile.avatar_url = user_update.avatar_url
+    if user_update.bio is not None:
+        profile.bio = user_update.bio
+    if user_update.website is not None:
+        profile.website = user_update.website
+        
+    # Status & Flags
+    if user_update.status is not None:
+        profile.status = user_update.status
+    if user_update.is_verified is not None:
+        profile.is_verified = user_update.is_verified
+    if user_update.is_influencer is not None:
+        profile.is_influencer = user_update.is_influencer
+        
+    # Role
+    if user_update.role_id is not None:
+        profile.role_id = user_update.role_id
+        
+    # Gamification & Stats
     if user_update.reputation_score is not None:
         profile.reputation_score = user_update.reputation_score
     if user_update.points_current is not None:
         profile.points_current = user_update.points_current
-        
-    # Update Auth User Metadata (Requires Supabase Admin API usually, but we can try raw SQL update if permissions allow)
-    # WARNING: Updating auth.users directly is risky. 
-    # For now we will only update Profile fields and maybe raw_user_meta_data via SQL if critical.
+    if user_update.points_lifetime is not None:
+        profile.points_lifetime = user_update.points_lifetime
+    if user_update.reviews_count is not None:
+        profile.reviews_count = user_update.reviews_count
+    if user_update.photos_count is not None:
+        profile.photos_count = user_update.photos_count
+    if user_update.verified_checkins_count is not None:
+        profile.verified_checkins_count = user_update.verified_checkins_count
     
+    # Preferences
+    if user_update.preferences is not None:
+        profile.preferences = user_update.preferences
+    if user_update.favorite_cuisines is not None:
+        profile.favorite_cuisines = user_update.favorite_cuisines
+    if user_update.price_preference is not None:
+        profile.price_preference = user_update.price_preference
+        
+    # Location
+    if user_update.current_city is not None:
+        profile.current_city = user_update.current_city
+        
+    # Referral
+    if user_update.referral_source is not None:
+        profile.referral_source = user_update.referral_source
+        
+    # Handle is_active (Banning) - Requires raw SQL on auth.users
+    if user_update.is_active is not None:
+        if user_update.is_active:
+            # Unban
+            await db.execute(text("UPDATE auth.users SET banned_until = NULL WHERE id = :uid"), {"uid": user_id})
+        else:
+            # Ban forever (or long time) - 100 years
+            await db.execute(text("UPDATE auth.users SET banned_until = (now() + interval '100 years') WHERE id = :uid"), {"uid": user_id})
+    
+    # Sync display_name to auth metadata if changed
     if user_update.display_name is not None:
-        # Update display_name in auth.users raw_user_meta_data
-        # This is PostgreSQL specific JSONB update
-        await db.execute(
+         await db.execute(
             text("""
                 UPDATE auth.users 
-                SET raw_user_meta_data = jsonb_set(raw_user_meta_data, '{display_name}', to_jsonb(:name::text))
+                SET raw_user_meta_data = jsonb_set(COALESCE(raw_user_meta_data, '{}'), '{display_name}', to_jsonb(:name::text))
                 WHERE id = :user_id
             """),
             {"name": user_update.display_name, "user_id": str(user_id)}
         )
-        
+
     await db.commit()
+    await db.refresh(profile)
     
     return await get_user_detail(db, user_id)

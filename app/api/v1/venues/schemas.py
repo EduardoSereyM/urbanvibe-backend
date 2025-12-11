@@ -21,6 +21,8 @@ class VenueBase(BaseModel):
     is_founder_venue: bool = False
 
     # Precio
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
     price_tier: Optional[int] = None
     avg_price_min: Optional[int] = None
     avg_price_max: Optional[int] = None
@@ -57,6 +59,7 @@ class VenueBase(BaseModel):
                         "review_count",
                         "verified_visits_monthly",
                         "is_founder_venue",
+                        "category_id",
                         "price_tier",
                         "avg_price_min",
                         "avg_price_max",
@@ -80,14 +83,35 @@ class VenueBase(BaseModel):
                         "opening_hours",
                         "payment_methods",
                         "features_config",
+                        "favorites_count",  # ← AGREGADO
                     ]:
                         if hasattr(data, attr):
                             base[attr] = getattr(data, attr)
+                    
+                    if hasattr(data, "category") and data.category:
+                        base["category_name"] = data.category.name
 
                     base["location"] = {"lat": shape.y, "lng": shape.x}
                     return base
             except Exception:
                 return data
+
+        # Fallback for non-ORM objects (if any) or validation when creating from dict
+        # If it's a dict, we might need to preserve category_name if passed
+        if isinstance(data, dict):
+             return data
+        
+        # If it's ORM object but location is None or parse failed up there
+        if hasattr(data, "category") and data.category:
+             # We can't easily modify the ORM object to add category_name attribute dynamically 
+             # without causing issues, but Pydantic with from_attributes=True
+             # usually expects attributes to match.
+             # However, since we are in `mode='before'`, we can return a dict representation.
+             # But converting entire ORM to dict is expensive.
+             # Easier approach: Add a property to the Model? No, modifying model again is annoying.
+             # Best regex approach: Return a getter proxy?
+             # Or just manually map it if we are returning `base` dict above.
+             pass
 
         return data
 
@@ -97,7 +121,7 @@ class VenueMapPreviewResponse(VenueBase):
     Schema optimizado para el modal del mapa.
     Hereda de VenueBase y no agrega nada más por ahora.
     """
-    pass
+    logo_url: Optional[str] = None
 
 
 class VenueListResponse(VenueBase):
@@ -135,3 +159,4 @@ class VenueDetailResponse(VenueListResponse):
     opening_hours: Optional[dict] = None
     payment_methods: Optional[dict] = None
     features_config: Optional[dict] = None
+    favorites_count: int = 0

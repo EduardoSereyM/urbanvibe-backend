@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 from app.schemas.opening_hours import OpeningHours
 
@@ -295,6 +295,7 @@ class UserAdminListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID
+    username: Optional[str] = None
     email: Optional[str] = None
     display_name: Optional[str] = None
     reputation_score: int = 0
@@ -319,14 +320,53 @@ class UserAdminDetail(BaseModel):
     """Detalle completo de usuario para admin"""
     model_config = ConfigDict(from_attributes=True)
     
+    # Identity
     id: UUID
+    username: Optional[str] = None
     email: Optional[str] = None
+    full_name: Optional[str] = None
     display_name: Optional[str] = None
+    national_id: Optional[str] = None
+    birth_date: Optional[date] = None
+    gender: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    website: Optional[str] = None
+    
+    # Status & Flags
+    status: Optional[str] = None
+    is_verified: bool = False
+    is_influencer: bool = False
+    is_active: bool = True # Computed from auth
+    
+    # Role
+    role_id: int
+    role_name: Optional[str] = None # Enriched
+    
+    # Gamification & Stats
     reputation_score: int = 0
     points_current: int = 0
     points_lifetime: int = 0
+    current_level_id: Optional[int] = None
+    reviews_count: int = 0
+    photos_count: int = 0
+    verified_checkins_count: int = 0
     
-    roles: List[UserRoleInfo] = []
+    # Preferences
+    preferences: Optional[Dict[str, Any]] = None
+    favorite_cuisines: Optional[List[str]] = None
+    price_preference: Optional[int] = None
+    
+    # Location
+    current_city: Optional[str] = None
+    
+    # Referral
+    referral_code: Optional[str] = None
+    referral_source: Optional[str] = None
+    referred_by_user_id: Optional[UUID] = None
+    
+    # Nested Info
+    roles: List[UserRoleInfo] = [] # Legacy array for backward compatibility
     auth_info: UserAuthInfo
     activity: UserActivityInfo
     venues_owned: List[VenueOwnedInfo] = []
@@ -334,10 +374,44 @@ class UserAdminDetail(BaseModel):
 
 class UserUpdate(BaseModel):
     """Schema para actualizar usuario"""
+    # Identity
+    username: Optional[str] = None
+    full_name: Optional[str] = None
     display_name: Optional[str] = None
+    national_id: Optional[str] = None
+    birth_date: Optional[date] = None
+    gender: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    website: Optional[str] = None
+    
+    # Status & Flags
+    status: Optional[str] = None
+    is_verified: Optional[bool] = None
+    is_influencer: Optional[bool] = None
+    is_active: Optional[bool] = None # Updates banned_until in auth
+    
+    # Role
+    role_id: Optional[int] = None
+    
+    # Gamification
     reputation_score: Optional[int] = None
     points_current: Optional[int] = None
-    is_active: Optional[bool] = None
+    points_lifetime: Optional[int] = None
+    reviews_count: Optional[int] = None
+    photos_count: Optional[int] = None
+    verified_checkins_count: Optional[int] = None
+    
+    # Preferences
+    preferences: Optional[Dict[str, Any]] = None
+    favorite_cuisines: Optional[List[str]] = None
+    price_preference: Optional[int] = None
+    
+    # Location
+    current_city: Optional[str] = None
+    
+    # Referral
+    referral_source: Optional[str] = None
 
 
 # --- METRICS SCHEMAS ---

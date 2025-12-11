@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     FetchedValue,
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.sql import func
 from geoalchemy2 import Geography
@@ -33,6 +34,7 @@ class Venue(Base):
 
     # Categoría (FK opcional)
     category_id = Column(Integer, ForeignKey("public.venue_categories.id"), nullable=True)
+    category = relationship("VenueCategory", lazy="joined")
 
     # Branding / media
     logo_url = Column(Text, nullable=True)
@@ -77,6 +79,7 @@ class Venue(Base):
     trust_tier = Column(String(20), nullable=True, default="standard")
     rating_average = Column(Float, nullable=True, default=0.0)
     review_count = Column(Integer, nullable=True, default=0)
+    favorites_count = Column(Integer, nullable=True, default=0)
     
     # SEO / búsqueda
     seo_title = Column(String(70), nullable=True)
@@ -128,6 +131,9 @@ class Venue(Base):
 
     # Dueño / auditoría
     owner_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id"), nullable=True)
+
+    # Notifications logic
+    last_read_reviews_at = Column(DateTime(timezone=True), nullable=True)
 
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 

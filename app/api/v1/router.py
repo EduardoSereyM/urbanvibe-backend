@@ -1,20 +1,32 @@
+
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, venues, profiles, checkins, qr, contact
-from app.api.v1.auth.routes import router as auth_router
-from app.api.v1.public.routes import router as public_router
+from app.api.v1.endpoints import (
+    health,
+    venue_team,
+    contact,
+    checkins,
+    promotions,
+    # reviews - if needed
+)
+from app.api.v1.auth import router as auth_router
+from app.api.v1.venues.routes import router as venues_public_router
+from app.api.v1.endpoints.profiles import router as profiles_router
 from app.api.v1.venues_admin.router import router as venues_admin_router
-from app.api.v1.admin.router import router as admin_router
+from app.api.v1.admin.router import router as admin_router # Re-added based on usage
 
 api_router = APIRouter()
 
-api_router.include_router(health.router, tags=["health"])
-api_router.include_router(venues.router, prefix="/venues", tags=["venues"])
-api_router.include_router(profiles.router, prefix="/profiles", tags=["profiles"])
-api_router.include_router(checkins.router, prefix="/checkins", tags=["checkins"])
-# api_router.include_router(qr.router, prefix="/qr", tags=["qr"])
+api_router.include_router(health.router, tags=["Health"])
+api_router.include_router(auth_router, tags=["Auth"])
+api_router.include_router(profiles_router, prefix="/profiles", tags=["User Profile"])
+api_router.include_router(venues_public_router, prefix="/venues", tags=["Venues Public"])
+api_router.include_router(venue_team.router, prefix="/venue-team", tags=["Venue Team"])
+api_router.include_router(contact.router, prefix="/contact", tags=["Contact"])
+api_router.include_router(checkins.router, prefix="/checkins", tags=["Checkins Basic"])
+api_router.include_router(promotions.router, prefix="/promotions", tags=["Promotions User"])
 
-api_router.include_router(auth_router,   prefix="/auth",   tags=["auth"])
-api_router.include_router(public_router, prefix="/public", tags=["public"])
-api_router.include_router(venues_admin_router, prefix="/venues-admin", tags=["venues_admin"])
+# Admin / B2B
+api_router.include_router(venues_admin_router, prefix="/venues-admin", tags=["Venues Admin B2B"])
 api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
-api_router.include_router(contact.router, prefix="/contact", tags=["contact"])
+from app.api.v1.reviews.router import router as reviews_router
+api_router.include_router(reviews_router, prefix="/reviews", tags=["reviews"])

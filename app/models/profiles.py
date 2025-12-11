@@ -12,6 +12,7 @@ class Profile(Base):
     id = Column(UUID(as_uuid=True), primary_key=True)
     
     username = Column(String, unique=True)
+    email = Column(String)  # Read-only copy from Auth
     full_name = Column(String)
     display_name = Column(String)
     
@@ -31,5 +32,7 @@ class Profile(Base):
     
     avatar_url = Column(String)
     bio = Column(String)
+    
+    role_id = Column(Integer, ForeignKey("public.app_roles.id"), default=5)  # 5 = APP_USER
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
