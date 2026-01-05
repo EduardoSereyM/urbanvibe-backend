@@ -12,10 +12,12 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.venues.routes import router as venues_public_router
 from app.api.v1.endpoints.profiles import router as profiles_router
 from app.api.v1.venues_admin.router import router as venues_admin_router
-from app.api.v1.admin.router import router as admin_router # Re-added based on usage
+from app.api.v1.admin.router import router as admin_router
+from app.api.v1.endpoints import mobile # BFF
 
 api_router = APIRouter()
 
+api_router.include_router(mobile.router, prefix="/mobile", tags=["Mobile BFF"])
 api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(auth_router, tags=["Auth"])
 api_router.include_router(profiles_router, prefix="/profiles", tags=["User Profile"])
