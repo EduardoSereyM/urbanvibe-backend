@@ -75,76 +75,87 @@ class VenueResponse(VenueBase):
         if hasattr(data, 'location') and data.location is not None:
             # If it's a WKBElement (GeoAlchemy2), convert to shape
             try:
+                # 1. Location Processing
                 shape = to_shape(data.location)
+                lat, lng = 0.0, 0.0
                 if isinstance(shape, Point):
-                    # Convert ORM object to dict to include all fields
-                    return {
-                        "id": data.id,
-                        "name": data.name,
-                        "slogan": data.slogan,
-                        "overview": data.overview,
-                        "category_id": data.category_id,
-                        "category_name": getattr(data, 'category_name', None),
-                        
-                        # Branding
-                        "logo_url": data.logo_url,
-                        "cover_image_urls": data.cover_image_urls or [],
-                        "menu_media_urls": data.menu_media_urls or [],
-                        
-                        # Contact & Location
-                        "address_display": data.address_display,
-                        "city": data.city,
-                        "region_state": data.region_state,
-                        "country_code": data.country_code,
-                        "website": data.website,
-                        "contact_email": data.contact_email,
-                        "contact_phone": data.contact_phone,
-                        
-                        # Price & Operations
-                        "price_tier": data.price_tier,
-                        "currency_code": data.currency_code,
-                        "operational_status": data.operational_status,
-                        "opening_hours": data.opening_hours or {},
-                        
-                        # Trust & Metrics - use database values directly
-                        "trust_tier": data.trust_tier,
-                        "is_verified": data.is_verified,
-                        "verification_status": data.verification_status,
-                        "is_founder_venue": data.is_founder_venue,
-                        "verified_visits_monthly": data.verified_visits_monthly,
-                        "rating_average": float(data.rating_average) if data.rating_average else 0.0,
-                        "review_count": data.review_count or 0,
-                        "favorites_count": (lambda: (
-                            print(f"🔍 SCHEMA: data.favorites_count = {data.favorites_count}"),
-                            print(f"🔍 SCHEMA: hasattr = {hasattr(data, 'favorites_count')}"),
-                            print(f"🔍 SCHEMA: Final value = {data.favorites_count or 0}"),
-                            data.favorites_count or 0
-                        )[3])(),
-                        
-                        "location": {"lat": shape.y, "lng": shape.x},
-                        
-                        # Extended attributes
-                        "connectivity_features": data.connectivity_features or [],
-                        "accessibility_features": data.accessibility_features or [],
-                        "space_features": data.space_features or [],
-                        "comfort_features": data.comfort_features or [],
-                        "audience_features": data.audience_features or [],
-                        "entertainment_features": data.entertainment_features or [],
-                        "dietary_options": data.dietary_options or [],
-                        "access_features": data.access_features or [],
-                        "security_features": data.security_features or [],
-                        "mood_tags": data.mood_tags or [],
-                        "occasion_tags": data.occasion_tags or [],
-                        "music_profile": data.music_profile or {},
-                        "crowd_profile": data.crowd_profile or {},
-                        "pricing_profile": data.pricing_profile or {},
-                        "capacity_estimate": data.capacity_estimate,
-                        "seated_capacity": data.seated_capacity,
-                        "standing_allowed": data.standing_allowed,
-                        "noise_level": data.noise_level,
-                    }
-            except Exception:
-                pass
+                    lat = shape.y
+                    lng = shape.x
+                
+                # 2. Media URLs Processing (Fix Pydantic Error)
+                raw_media = getattr(data, 'menu_media_urls', []) or []
+                processed_media = []
+                for item in raw_media:
+                    if isinstance(item, str):
+                        processed_media.append({"url": item, "type": "image", "name": "Menu Item"})
+                    else:
+                        processed_media.append(item)
+
+                # Convert ORM object to dict to include all fields
+                return {
+                    "id": data.id,
+                    "name": data.name,
+                    "slogan": data.slogan,
+                    "overview": data.overview,
+                    "category_id": data.category_id,
+                    "category_name": getattr(data, 'category_name', None),
+                    
+                    # Branding
+                    "logo_url": data.logo_url,
+                    "cover_image_urls": data.cover_image_urls or [],
+                    "menu_media_urls": processed_media, # Use processed list
+                    
+                    # Contact & Location
+                    "address_display": data.address_display,
+                    "city": data.city,
+                    "region_state": data.region_state,
+                    "country_code": data.country_code,
+                    "website": data.website,
+                    "contact_email": data.contact_email,
+                    "contact_phone": getattr(data, 'contact_phone', None),
+                    
+                    # Price & Operations
+                    "price_tier": data.price_tier,
+                    "currency_code": data.currency_code,
+                    "operational_status": data.operational_status,
+                    "opening_hours": data.opening_hours or {},
+                    
+                    # Trust & Metrics
+                    "trust_tier": data.trust_tier,
+                    "is_verified": data.is_verified,
+                    "verification_status": data.verification_status,
+                    "is_founder_venue": data.is_founder_venue,
+                    "verified_visits_monthly": data.verified_visits_monthly,
+                    "rating_average": float(data.rating_average) if data.rating_average else 0.0,
+                    "review_count": data.review_count or 0,
+                    "favorites_count": getattr(data, 'favorites_count', 0) or 0,
+                    
+                    "location": {"lat": lat, "lng": lng},
+                    
+                    # Extended attributes
+                    "connectivity_features": data.connectivity_features or [],
+                    "accessibility_features": data.accessibility_features or [],
+                    "space_features": data.space_features or [],
+                    "comfort_features": data.comfort_features or [],
+                    "audience_features": data.audience_features or [],
+                    "entertainment_features": data.entertainment_features or [],
+                    "dietary_options": data.dietary_options or [],
+                    "access_features": data.access_features or [],
+                    "security_features": data.security_features or [],
+                    "mood_tags": data.mood_tags or [],
+                    "occasion_tags": data.occasion_tags or [],
+                    "music_profile": data.music_profile or {},
+                    "crowd_profile": data.crowd_profile or {},
+                    "pricing_profile": data.pricing_profile or {},
+                    "capacity_estimate": data.capacity_estimate,
+                    "seated_capacity": data.seated_capacity,
+                    "standing_allowed": data.standing_allowed,
+                    "noise_level": data.noise_level,
+                }
+            except Exception as e:
+                print(f"❌ Error parsing Venue mapping: {e}")
+                # Re-raise to see it in FastAPI logs instead of silent failure causing Pydantic validation error downstream
+                raise e
         return data
 
 class QRCodeResponse(BaseModel):
