@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     QR_JWT_AUDIENCE: str = "urbanvibe-app"
     QR_TOKEN_DEFAULT_TTL_SECONDS: int = 120
 
+    # SMTP Configuration
+    MAIL_USERNAME: str = "contacto@urbanvibe.cl"
+    MAIL_PASSWORD: str
+    MAIL_FROM: str = "contacto@urbanvibe.cl"
+    MAIL_PORT: int = 465
+    MAIL_SERVER: str = "mail.urbanvibe.cl"
+    MAIL_STARTTLS: bool = False
+    MAIL_SSL_TLS: bool = True
+    
+    # Notifications
+    SUPER_ADMIN_EMAIL: str = "admin@urbanvibe.cl"
+
     model_config = SettingsConfigDict(
         env_file=".env", 
         case_sensitive=True,

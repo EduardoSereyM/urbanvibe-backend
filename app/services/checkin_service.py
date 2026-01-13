@@ -70,6 +70,37 @@ class CheckinService:
         try:
             await db.commit()
             await db.refresh(new_checkin)
+            
+            # --- Notificaciones ---
+            from app.services.notifications import notification_service
+            from app.models.profiles import Profile
+            
+            # 1. Obtener datos del usuario para el mensaje
+            user_res = await db.execute(select(Profile).where(Profile.id == user_id))
+            user_profile = user_res.scalar_one_or_none()
+            user_name = user_profile.username if user_profile else "Un usuario"
+            
+            # 2. Notificar al Usuario (Feedback exitoso)
+            await notification_service.send_in_app_notification(
+                db=db,
+                user_id=user_id,
+                title="Check-in Exitoso ✅",
+                body=f"Bienvenido a {venue.name}. ¡Disfruta tu visita!",
+                type="success",
+                data={"screen": "venue-detail", "id": str(venue_id)}
+            )
+            
+            # 3. Notificar al Dueño del Local
+            if venue.owner_id:
+                await notification_service.send_in_app_notification(
+                    db=db,
+                    user_id=venue.owner_id,
+                    title="Nuevo Check-in 📍",
+                    body=f"{user_name} ha realizado check-in en {venue.name}.",
+                    type="info",
+                    data={"screen": "venue-checkins", "venue_id": str(venue_id)}
+                )
+
         except Exception as e:
             await db.rollback()
             # Check for unique constraint violation
@@ -81,8 +112,6 @@ class CheckinService:
             # Re-raise other errors
             raise e
         
-        return new_checkin
-
         return new_checkin
 
     async def get_user_checkins(

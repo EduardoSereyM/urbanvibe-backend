@@ -8,7 +8,8 @@ from .promotions import Promotion
 from .gamification import GamificationEvent, GamificationLog
 from .rewards import RewardUnit, Redemption
 from .logs import MenuLog, PromoLog, QRLog
-from .qr_tokens import QRToken
+from .qr_tokens import QrToken
+from .notifications import Notification, UserDevice
 from .reviews import Review, ReviewReaction
 from .content_reports import ContentReport
 from .roles import AppRole

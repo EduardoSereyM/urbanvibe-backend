@@ -14,6 +14,7 @@ from app.api.v1.endpoints.profiles import router as profiles_router
 from app.api.v1.venues_admin.router import router as venues_admin_router
 from app.api.v1.admin.router import router as admin_router
 from app.api.v1.endpoints import mobile # BFF
+from app.api.v1.endpoints import notifications # Notifications
 
 api_router = APIRouter()
 
@@ -32,3 +33,4 @@ api_router.include_router(venues_admin_router, prefix="/venues-admin", tags=["Ve
 api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 from app.api.v1.reviews.router import router as reviews_router
 api_router.include_router(reviews_router, prefix="/reviews", tags=["reviews"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

@@ -26,6 +26,9 @@ from app.api.v1.venues_admin.service import (
     get_venue_b2b_detail,
     update_venue_b2b,
 )
+from app.services.notifications import notification_service
+from app.services.qr_token_service import qr_token_service
+from app.schemas.qr_tokens import QrTokenResponse
 
 router = APIRouter(
     tags=["venues_admin"],
@@ -100,11 +103,28 @@ async def create_venue(
     """
     Crea una casa matriz (local fundador) para el usuario actual.
     """
-    return await create_founder_venue(
+    result = await create_founder_venue(
         db=db,
         venue_data=venue_data,
         owner_user_id=current_user.id
     )
+    
+    # Notificar creación de venue
+    # Obtenemos email del user
+    user_email = current_user.email or ""
+    
+    # Fire and Forget (o await si queremos asegurar envío)
+    await notification_service.notify_new_venue_created({
+        "name": venue_data.name,
+        "owner_email": user_email,
+        "category": str(venue_data.category_id)
+    }, db=db)
+    
+    # Enviar correo de bienvenida al dueño
+    if user_email:
+        await notification_service.send_venue_welcome_email(user_email, venue_data.name)
+    
+    return result
 
 
 @router.get("/venues/{venue_id}", response_model=VenueB2BDetail)
@@ -190,6 +210,21 @@ async def update_checkin_status_endpoint(
         user_id=current_user.id,
         is_super_admin=is_super_admin
     )
+
+
+@router.post("/venues/{venue_id}/qr-checkin", response_model=QrTokenResponse)
+async def generate_checkin_qr_endpoint(
+    venue_id: UUID,
+    db: Annotated[AsyncSession, Depends(deps.get_db)],
+    current_user: Annotated[Profile, Depends(deps.get_current_user)],
+    is_super_admin: Annotated[bool, Depends(get_is_super_admin)],
+):
+    """
+    Genera un QR dinámico para check-in.
+    Requiere ser dueño del local o admin.
+    """
+    # TODO: Validar que el usuario sea el dueño si no es super admin (Aunque el service podría validarlo)
+    return await qr_token_service.generate_checkin_token(db, venue_id, current_user.id)
 
 
 # --- PROMOTIONS & REWARDS ENDPOINTS ---

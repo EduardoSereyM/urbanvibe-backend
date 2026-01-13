@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.db.base import Base
 
-class QRToken(Base):
+class QrToken(Base):
     __tablename__ = "qr_tokens"
     __table_args__ = {"schema": "public"}
 

@@ -371,6 +371,8 @@ async def update_venue(
         )
     
     # Actualizar campos simples
+    previous_verification_status = venue.verification_status
+    
     if venue_update.name is not None:
         venue.name = venue_update.name
     if venue_update.legal_name is not None:
@@ -393,6 +395,16 @@ async def update_venue(
              venue.verification_status = "verified"
         elif not venue.is_verified and venue.verification_status == "verified":
              venue.verification_status = "pending" # or rejected? pending is safer
+        
+    # --- Notificación de Aprobación ---
+    if previous_verification_status != "verified" and venue.verification_status == "verified":
+       if venue.owner_id:
+           from app.services.notifications import notification_service
+           # Fire and forget / background task ideal, but await for now
+           try:
+               await notification_service.notify_venue_approved(db, venue.name, venue.owner_id)
+           except Exception as e:
+               print(f"Error sending approval notification: {e}")
         
     if venue_update.is_operational is not None:
         venue.operational_status = "open" if venue_update.is_operational else "temporarily_closed"

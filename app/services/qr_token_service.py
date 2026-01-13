@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.models.qr_tokens import QRToken
+from app.models.qr_tokens import QrToken
 from app.schemas.qr_tokens import QrTokenResponse
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ class QrTokenService:
         valid_until = now + timedelta(seconds=expires_in)
 
         # Create DB record
-        db_token = QRToken(
+        db_token = QrToken(
             type="checkin",
             scope="checkin",
             venue_id=venue_id,
@@ -53,7 +53,7 @@ class QrTokenService:
             valid_until=valid_until
         )
 
-    async def validate_token(self, db: AsyncSession, token_str: str) -> QRToken:
+    async def validate_token(self, db: AsyncSession, token_str: str) -> QrToken:
         try:
             payload = jwt.decode(
                 token_str,
@@ -79,7 +79,7 @@ class QrTokenService:
             raise HTTPException(status_code=400, detail="Invalid QR ID")
 
         # Check DB
-        result = await db.execute(select(QRToken).where(QRToken.id == token_id))
+        result = await db.execute(select(QrToken).where(QrToken.id == token_id))
         db_token = result.scalar_one_or_none()
 
         if not db_token:
@@ -101,7 +101,7 @@ class QrTokenService:
 
         return db_token
 
-    async def mark_token_used(self, db: AsyncSession, token: QRToken, user_id: UUID):
+    async def mark_token_used(self, db: AsyncSession, token: QrToken, user_id: UUID):
         token.used_count += 1
         token.last_used_at = datetime.now(timezone.utc)
         token.last_used_by = user_id

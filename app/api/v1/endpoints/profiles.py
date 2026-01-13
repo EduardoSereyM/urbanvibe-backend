@@ -235,13 +235,37 @@ async def add_favorite(
         
     fav = UserFavoriteVenue(user_id=current_user_id, venue_id=venue_id)
     db.add(fav)
+    
+    # Commit changes 
+    await db.commit()
+
+    # --- Notification Logic ---
     try:
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
+        from app.models.venues import Venue
+        from app.models.profiles import Profile
         
+        # Fetch venue details (name and owner)
+        venue_res = await db.execute(select(Venue).where(Venue.id == venue_id))
+        venue_data = venue_res.scalar_one_or_none()
+        
+        if venue_data and venue_data.owner_id:
+             # Fetch user name
+             user_res = await db.execute(select(Profile).where(Profile.id == current_user_id))
+             user_data = user_res.scalar_one_or_none()
+             user_name = user_data.username if user_data else "Un usuario"
+             
+             from app.services.notifications import notification_service
+             await notification_service.notify_venue_like(
+                db=db,
+                venue_name=venue_data.name,
+                owner_id=venue_data.owner_id,
+                user_name=user_name
+             )
+    except Exception as e:
+        print(f"Error sending like notification: {e}")
+
     return {"message": "Agregado a favoritos"}
+
 
 @router.delete("/me/favorites/{venue_id}")
 async def remove_favorite(

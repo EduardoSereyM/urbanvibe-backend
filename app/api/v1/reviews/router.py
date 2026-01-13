@@ -36,8 +36,19 @@ async def create_review(
     )
     db.add(new_review)
     
-    # Update venue statistics (rating_average, review_count)
     await update_venue_statistics(db, payload.venue_id)
+    
+    # --- Notificación al Dueño ---
+    if venue.owner_id and venue.owner_id != current_user.id:
+        from app.services.notifications import notification_service
+        reviewer_name = current_user.username or current_user.display_name or "Un usuario"
+        await notification_service.notify_venue_review(
+            db=db,
+            venue_name=venue.name,
+            owner_id=venue.owner_id,
+            reviewer_name=reviewer_name,
+            rating=payload.general_score
+        )
     
     await db.commit()
     await db.refresh(new_review)
