@@ -14,7 +14,9 @@ from app.api.v1.endpoints.profiles import router as profiles_router
 from app.api.v1.venues_admin.router import router as venues_admin_router
 from app.api.v1.admin.router import router as admin_router
 from app.api.v1.endpoints import mobile # BFF
+from app.api.v1.endpoints import mobile # BFF
 from app.api.v1.endpoints import notifications # Notifications
+from app.api.v1.admin.gamification import router as gamification_admin_router
 
 api_router = APIRouter()
 
@@ -34,3 +36,4 @@ api_router.include_router(admin_router, prefix="/admin", tags=["admin"])
 from app.api.v1.reviews.router import router as reviews_router
 api_router.include_router(reviews_router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+api_router.include_router(gamification_admin_router, prefix="/admin/gamification", tags=["Admin Gamification"])

@@ -14,10 +14,11 @@ from app.schemas.notifications import DeviceRegistration, NotificationResponse
 router = APIRouter()
 
 class NewUserEvent(BaseModel):
-    user_id: str
+    user_id: UUID
     email: str
     username: str
     role: str = "APP_USER"
+    invitation_code: Optional[str] = None
 
 # --- User Facing Endpoints ---
 
@@ -128,4 +129,19 @@ async def notify_user_created_event(
         username=event.username
     )
     
-    return {"message": "Notification queued"}
+    # --- NUEVO: PROCESAR CÓDIGO DE INVITACIÓN ---
+    if event.invitation_code:
+        from app.services.referral_service import referral_service
+        try:
+            print(f"🎁 Procesando código de invitación: {event.invitation_code} para {event.user_id}")
+            # Llamamos al servicio para vincular y premiar
+            await referral_service.claim_referral_code(
+                db=db,
+                user_id=event.user_id,
+                referral_code=event.invitation_code
+            )
+        except Exception as e:
+            # No bloqueamos el registro por error de invitación, pero lo logueamos
+            print(f"⚠️ Error al procesar invitación ({event.invitation_code}): {str(e)}")
+
+    return {"message": "Notification queued and referral processed"}

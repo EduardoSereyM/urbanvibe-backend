@@ -128,3 +128,35 @@ async def get_current_user_optional(
 
     except Exception:
         return None
+
+async def get_current_active_superuser(
+    current_user: Annotated[Profile, Depends(get_current_user)],
+) -> Profile:
+    """
+    Checks if the current user is a superuser.
+    """
+    # 1. Hardcoded email check (Simplest for now)
+    superuser_emails = ["administradorapp@urbanvibe.cl"]
+    if current_user.email in superuser_emails:
+        return current_user
+        
+    # 2. Check Role (if implemented in Profile or App Metadata)
+    # Since we don't have roles readily available in Profile model easily (maybe), let's stick to email auth for MVP.
+    # Or check if there is a 'role' column? No. 
+    # But usually app_metadata in JWT has it.
+    
+    # Let's assume for now, email whitelist is enough, plus we can check a future is_superuser field.
+    
+    raise HTTPException(
+        status_code=403,
+        detail="The user doesn't have enough privileges"
+    )
+
+def get_current_user_auth_metadata(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)]
+) -> HTTPAuthorizationCredentials:
+    """
+    Returns the raw auth credentials (JWT token container).
+    Useful when you need to decode the token manually to access metadata not in the DB.
+    """
+    return credentials

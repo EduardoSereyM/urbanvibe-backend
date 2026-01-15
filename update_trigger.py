@@ -27,14 +27,20 @@ async def update_trigger():
     LANGUAGE plpgsql
     SECURITY DEFINER
     AS $function$
+    DECLARE
+      gen_code TEXT;
     BEGIN
+      -- Generar código UV-XXXXXX (6 caracteres alfanuméricos aleatorios)
+      gen_code := 'UV-' || upper(substring(replace(gen_random_uuid()::text, '-', '') from 1 for 6));
+
       INSERT INTO public.profiles (
         id, 
         email, 
         username, 
         full_name, 
         avatar_url,
-        role_id
+        role_id,
+        referral_code
       )
       VALUES (
         new.id, 
@@ -47,12 +53,14 @@ async def update_trigger():
         ),
         COALESCE(new.raw_user_meta_data->>'full_name', ''),
         new.raw_user_meta_data->>'avatar_url',
-        5 -- Default APP_USER role
+        5, -- Default APP_USER role
+        gen_code
       )
       ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email,
         username = EXCLUDED.username,
-        full_name = EXCLUDED.full_name;
+        full_name = EXCLUDED.full_name,
+        referral_code = COALESCE(profiles.referral_code, EXCLUDED.referral_code);
         
       RETURN new;
     END;

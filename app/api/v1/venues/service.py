@@ -41,6 +41,7 @@ async def get_venues_map_preview(
     stmt = (
         stmt.order_by(
             Venue.is_verified.desc(),
+            Venue.points_balance.desc(),  # 🔥 Boost de Visibilidad B2B (V12.4)
             Venue.rating_average.desc(),
             Venue.verified_visits_monthly.desc(),
             Venue.name.asc(),
@@ -75,6 +76,7 @@ async def get_venues_list_view(
     stmt = (
         stmt.order_by(
             Venue.is_verified.desc(),
+            Venue.points_balance.desc(),  # 🔥 Boost de Visibilidad B2B (V12.4)
             Venue.rating_average.desc(),
             Venue.review_count.desc(),
             Venue.name.asc(),

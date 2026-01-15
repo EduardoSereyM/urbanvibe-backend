@@ -290,7 +290,116 @@ async def run_migration():
         """ALTER TABLE public.checkins
           ADD COLUMN IF NOT EXISTS session_duration_minutes integer,
           ADD COLUMN IF NOT EXISTS visit_purpose jsonb DEFAULT '[]'::jsonb,
-          ADD COLUMN IF NOT EXISTS spend_bucket character varying"""
+          ADD COLUMN IF NOT EXISTS spend_bucket character varying""",
+
+        # 12. Levels & Seeds (010_gamification_levels)
+        """CREATE TABLE IF NOT EXISTS public.levels (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            name text UNIQUE NOT NULL,
+            min_points integer NOT NULL,
+            benefits jsonb DEFAULT '[]'::jsonb,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        )""",
+
+        """INSERT INTO public.levels (name, min_points, benefits) VALUES
+            ('Bronce', 0, '["Acceso básico"]'::jsonb),
+            ('Plata', 1000, '["Descuento 5%"]'::jsonb),
+            ('Oro', 5000, '["Descuento 10%", "Acceso VIP"]'::jsonb),
+            ('Embajador', 20000, '["Descuento 20%", "Eventos Exclusivos", "Prioridad"]'::jsonb)
+            ON CONFLICT (name) DO NOTHING""",
+
+        """INSERT INTO public.gamification_events (event_code, target_type, description, points, is_active) VALUES
+            ('CHECKIN', 'user', 'Check-in estándar en un local', 10, true),
+            ('REVIEW', 'user', 'Reseña aprobada de un local', 20, true),
+            ('REFERRAL_USER', 'user', 'Invitar a un amigo que se registra', 50, true),
+            ('REFERRAL_VENUE', 'user', 'Invitar a un local que se registra', 500, true),
+            ('EVENT_ATTENDANCE', 'user', 'Asistencia validada a evento', 30, true)
+            ON CONFLICT (event_code) DO NOTHING""",
+
+        # 13. Fix Profile Column (Separate steps for safety)
+        """ALTER TABLE public.profiles DROP COLUMN IF EXISTS current_level_id CASCADE""",
+        
+        """ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS current_level_id uuid""",
+
+        """DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_current_level_fk') THEN
+                ALTER TABLE public.profiles ADD CONSTRAINT profiles_current_level_fk FOREIGN KEY (current_level_id) REFERENCES public.levels(id);
+            END IF;
+        END $$""",
+
+        # 14. Advanced Gamification (011_advanced_gamification)
+        """CREATE TABLE IF NOT EXISTS public.badges (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            name text UNIQUE NOT NULL,
+            description text,
+            icon_url text,
+            category text DEFAULT 'GENERAL',
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        )""",
+
+        """CREATE TABLE IF NOT EXISTS public.user_badges (
+            user_id uuid NOT NULL,
+            badge_id uuid NOT NULL,
+            awarded_at timestamptz DEFAULT now(),
+            PRIMARY KEY (user_id, badge_id),
+            CONSTRAINT user_badges_user_fk FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE,
+            CONSTRAINT user_badges_badge_fk FOREIGN KEY (badge_id) REFERENCES public.badges(id) ON DELETE CASCADE
+        )""",
+
+        """CREATE TABLE IF NOT EXISTS public.challenges (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            code text UNIQUE NOT NULL, 
+            title text NOT NULL,
+            description text,
+            challenge_type text NOT NULL,
+            target_value integer NOT NULL DEFAULT 1,
+            filters jsonb DEFAULT '{}'::jsonb,
+            period_start timestamptz,
+            period_end timestamptz,
+            is_active boolean DEFAULT true,
+            reward_points integer DEFAULT 0,
+            reward_badge_id uuid,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT challenges_reward_badge_fk FOREIGN KEY (reward_badge_id) REFERENCES public.badges(id) ON DELETE SET NULL
+        )""",
+
+        """CREATE TABLE IF NOT EXISTS public.user_challenge_progress (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id uuid NOT NULL,
+            challenge_id uuid NOT NULL,
+            current_value integer DEFAULT 0,
+            is_completed boolean DEFAULT false,
+            completed_at timestamptz,
+            last_updated_at timestamptz DEFAULT now(),
+            CONSTRAINT ucp_unique_user_challenge UNIQUE (user_id, challenge_id),
+            CONSTRAINT ucp_user_fk FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE,
+            CONSTRAINT ucp_challenge_fk FOREIGN KEY (challenge_id) REFERENCES public.challenges(id) ON DELETE CASCADE
+        )""",
+
+        """INSERT INTO public.badges (name, description, category, icon_url) VALUES
+            ('Pionero', 'Uno de los primeros usuarios de UrbanVibe', 'ELITE', 'https://urbanvibe.app/badges/pioneer.png'),
+            ('Rey de la Noche', 'Experto en bares y discotecas', 'SOCIAL', 'https://urbanvibe.app/badges/nightking.png'),
+            ('Explorador', 'Haz hecho check-in en 5 restaurantes distintos', 'EXPLORER', 'https://urbanvibe.app/badges/explorer.png')
+            ON CONFLICT (name) DO NOTHING""",
+
+        # 15. Challenge Rewards (012_challenge_rewards)
+        """ALTER TABLE public.challenges 
+           ADD COLUMN IF NOT EXISTS reward_promotion_id uuid""",
+
+        """DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'challenges_reward_promo_fk') THEN
+                ALTER TABLE public.challenges 
+                ADD CONSTRAINT challenges_reward_promo_fk 
+                FOREIGN KEY (reward_promotion_id) 
+                REFERENCES public.promotions(id) 
+                ON DELETE SET NULL;
+            END IF;
+        END $$"""
     ]
 
     async with engine.begin() as conn:

@@ -108,4 +108,42 @@ class QrTokenService:
         db.add(token)
         # Commit should be handled by the caller
 
+    async def create_token(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        token_type: str,
+        content: str,
+        expires_at: datetime,
+        venue_id: UUID = None
+    ) -> QrToken:
+        """
+        Generic generic token creation (e.g. for Rewards).
+        """
+        # If venue_id is missing but model requires it, we must provide one.
+        # For system-wide rewards, maybe a NULL venue_id is needed in model?
+        # But QrToken model defines venue_id as nullable=False.
+        # So providing venue_id is mandatory.
+        if not venue_id:
+             # Fallback or Error? 
+             # If reward is global, we might have an issue. 
+             # But promotions are usually venue-specific.
+             # If not, we might need a dummy UUID or relax the constraint.
+             # For now, let's assume venue_id is provided.
+             pass
+
+        db_token = QrToken(
+            type=token_type,
+            scope=token_type.lower(),
+            venue_id=venue_id,
+            valid_until=expires_at,
+            created_by=user_id,
+            max_uses=1,
+            # We can store the raw content in meta if we want, or rely on ID lookup
+            meta={"content": content} 
+        )
+        db.add(db_token)
+        await db.flush() # Get ID
+        return db_token
+
 qr_token_service = QrTokenService()

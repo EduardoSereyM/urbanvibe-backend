@@ -133,58 +133,22 @@ async def claim_promotion(
     current_user: Profile = Depends(deps.get_current_user)
 ):
     """
-    Canjea una promoción (Reward). Descuenta puntos y genera Redemption.
+    Canjea una promoción usando el RedemptionService centralizado.
     """
-    # a. Get Promotion
-    stmt = select(Promotion).where(Promotion.id == promotion_id)
-    result = await db.execute(stmt)
-    promo = result.scalar_one_or_none()
+    from app.services.redemption_service import redemption_service
     
-    if not promo:
-        raise HTTPException(status_code=404, detail="Promoción no encontrada")
-        
-    if not promo.is_active:
-        raise HTTPException(status_code=400, detail="Esta promoción ya no está activa")
-
-    # b. Check Points (if reward)
-    points_cost = 0
-    if promo.promo_type == 'uv_reward': # or specific Enum check
-        points_cost = promo.points_cost or 0
-        if current_user.points_current < points_cost:
-             raise HTTPException(status_code=400, detail=f"No tienes suficientes puntos. Necesitas {points_cost}.")
-    
-    # c. Deduct Points
-    if points_cost > 0:
-        current_user.points_current -= points_cost
-        # Log points transaction? (TODO: Add to PointsLog)
-        
-    # d. Create Redemption / QR
-    # For simplicity, using Redemption ID as QR content or a dedicated Token
-    import uuid
-    qr_code = f"UV-PROMO-{uuid.uuid4().hex[:8].upper()}"
-    
-    redemption = Redemption(
-        user_id=current_user.id,
-        venue_id=promo.venue_id,
-        promotion_id=promo.id,
-        points_spent=points_cost,
-        status="pending", # 'confirmed' upon scan
-        # qr_content=qr_code # If model has it
+    result = await redemption_service.redeem_promotion(
+        db=db, 
+        user_id=current_user.id, 
+        promotion_id=promotion_id
     )
-    # Assuming Redemption model might need updates or we use a separate RewardUnit.
-    # Analyzing previous conversation, schema mentions 'Redemption' and 'RewardUnit'. 
-    # Let's check models later. use Redemption for now.
-    
-    db.add(redemption)
-    await db.commit()
-    await db.refresh(redemption)
     
     return ClaimResponse(
         success=True,
-        redemption_id=redemption.id,
-        qr_content=str(redemption.id), # Use ID as QR for simplicity for now
-        points_spent=points_cost,
-        message="¡Canje exitoso!"
+        redemption_id=result["reward_id"], # Usamos el ID del cupón generado
+        qr_content=str(result["reward_id"]),
+        points_spent=0, # El valor real se descuenta en el servicio
+        message=result["message"]
     )
 
 # 3. GET /me/wallet

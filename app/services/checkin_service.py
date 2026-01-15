@@ -11,6 +11,7 @@ from app.models.venues import Venue
 from app.services.qr_token_service import qr_token_service
 from app.core.config import settings
 from geoalchemy2.shape import to_shape
+from app.services.gamification_service import gamification_service
 
 class CheckinService:
     @staticmethod
@@ -71,6 +72,22 @@ class CheckinService:
             await db.commit()
             await db.refresh(new_checkin)
             
+            # --- GAMIFICATION ---
+            # Award points for Check-in
+            if new_checkin.status == 'confirmed':
+                 points_awarded = await gamification_service.register_event(
+                    db=db,
+                    user_id=user_id,
+                    event_code="CHECKIN", 
+                    venue_id=venue_id,
+                    source_id=new_checkin.id,
+                    details={
+                        "venue_category": venue.category.name if venue.category else "General",
+                        "method": "geofence"
+                    }
+                )
+                 print(f"🏆 Gamification: User {user_id} awarded {points_awarded} pts for Check-in {venue_id}")
+
             # --- Notificaciones ---
             from app.services.notifications import notification_service
             from app.models.profiles import Profile
@@ -97,9 +114,11 @@ class CheckinService:
                     user_id=venue.owner_id,
                     title="Nuevo Check-in 📍",
                     body=f"{user_name} ha realizado check-in en {venue.name}.",
-                    type="info",
                     data={"screen": "venue-checkins", "venue_id": str(venue_id)}
                 )
+                print(f"📧 Notificación enviada al dueño {venue.owner_id} del local {venue.name}")
+            else:
+                print(f"⚠️ El local {venue.name} no tiene owner_id asignado. No se envió notificación.")
 
         except Exception as e:
             await db.rollback()

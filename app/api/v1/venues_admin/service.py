@@ -171,6 +171,7 @@ async def create_founder_venue(
     # Preparar features_config
     features_config_json = {"chat": False}
     
+    from app.services.referral_service import referral_service
     # Crear el venue
     new_venue = Venue(
         legal_name=venue_data.legal_name,
@@ -185,6 +186,7 @@ async def create_founder_venue(
         operational_status="open",
         owner_id=owner_user_id,
         features_config=features_config_json,
+        referral_code=referral_service.generate_code(),
         
         # Nuevos campos
         logo_url=venue_data.logo_url,
@@ -286,6 +288,26 @@ async def update_venue_b2b(
     # Media
     if venue_data.logo_url: venue.logo_url = venue_data.logo_url
     if venue_data.cover_image_urls: venue.cover_image_urls = venue_data.cover_image_urls
+    
+    # Menú / Cartas (Gamificación - REQUERIMIENTO V12.4)
+    if venue_data.menu_media_urls is not None:
+        # Detectar si realmente cambió o se subió algo nuevo
+        old_menu = venue.menu_media_urls or []
+        new_menu = venue_data.menu_media_urls
+        
+        if set(new_menu) != set(old_menu):
+            venue.menu_media_urls = new_menu
+            venue.menu_last_updated_at = datetime.now()
+            
+            # Otorgar puntos de fidelidad al local
+            from app.services.gamification_service import gamification_service
+            await gamification_service.register_event(
+                db=db,
+                user_id=user_id, # El autor del cambio
+                event_code="MENU_UPDATE",
+                venue_id=venue_id,
+                details={"new_photos_count": len(new_menu)}
+            )
     
     # Details
     if venue_data.price_tier: venue.price_tier = venue_data.price_tier
@@ -585,12 +607,47 @@ async def update_checkin_status(
     # 3. Actualizar estado
     checkin.status = new_status
     
-    # Si se confirma, asegurar que se otorguen puntos si corresponde (lógica simplificada por ahora)
+    # --- GAMIFICACIÓN ---
     if new_status == 'confirmed' and checkin.points_awarded == 0:
-        checkin.points_awarded = 10 # Valor por defecto, debería venir de configuración
-        # Actualizar puntos del usuario
-        profile.points_current += 10
-        profile.points_lifetime += 10
+        from app.services.gamification_service import gamification_service
+        
+        # Registrar el evento (esto suma puntos, evalúa retos y niveles automáticamente)
+        points_awarded = await gamification_service.register_event(
+            db=db,
+            user_id=checkin.user_id,
+            event_code="CHECKIN",
+            venue_id=venue_id,
+            source_id=checkin.id,
+            details={
+                "venue_category": venue.category.name if venue.category else "General",
+                "method": "manual_validation"
+            }
+        )
+        checkin.points_awarded = points_awarded
+    
+    # --- Notificación al Usuario ---
+    try:
+        if new_status == 'confirmed':
+            from app.services.notifications import notification_service
+            await notification_service.send_in_app_notification(
+                db=db,
+                user_id=checkin.user_id,
+                title="¡Check-in Validado! 🎉",
+                body=f"El local ha validado tu visita. Has ganado {checkin.points_awarded} puntos.",
+                type="success",
+                data={"screen": "profile", "checkin_id": str(checkin.id)}
+            )
+        elif new_status == 'rejected':
+             from app.services.notifications import notification_service
+             await notification_service.send_in_app_notification(
+                db=db,
+                user_id=checkin.user_id,
+                title="Check-in Rechazado ❌",
+                body=f"Tu visita a {venue.name} no pudo ser validada.",
+                type="error"
+            )
+    except Exception as e:
+        print(f"Error enviando notificación de validación: {e}")
         
     await db.commit()
     await db.refresh(checkin)
@@ -721,31 +778,43 @@ async def validate_reward_qr(
     if not is_super_admin and venue.owner_id != user_id:
         raise HTTPException(status_code=403, detail="No tienes permiso para validar recompensas en este local")
 
-    # TODO: Implementar validación real contra tabla qr_tokens y reward_units
-    # Por ahora, simulamos éxito si el QR tiene cierto formato o fallamos
+    # 2. VALIDACIÓN REAL con RedemptionService
+    from app.services.redemption_service import redemption_service
     
-    # Simulación de éxito
-    points_earned = 2 # Puntos que gana el local por validar
-    
-    # Registrar log de puntos para el local
-    log = VenuePointsLog(
-        venue_id=venue_id,
-        delta=points_earned,
-        reason="reward_validation",
-        meta_data={"qr_content": qr_content}
-    )
-    db.add(log)
-    
-    # Actualizar balance del venue (trigger lo haría, pero aquí lo hacemos manual si no hay trigger)
-    venue.points_balance += points_earned
-    
-    await db.commit()
-    
-    return ValidateRewardResponse(
-        success=True,
-        message="Recompensa validada exitosamente",
-        points_earned=points_earned
-    )
+    # Intentamos validar como RewardUnit UUID
+    try:
+        reward_uuid = UUID(qr_content)
+        val_result = await redemption_service.validate_at_venue(db, reward_uuid, venue_id)
+        
+        if not val_result["success"]:
+             return ValidateRewardResponse(success=False, message=val_result["message"])
+             
+        # Si tiene éxito, premiamos al local por participar
+        points_earned = 5 
+        
+        # Registrar log para local
+        log = VenuePointsLog(
+            venue_id=venue_id,
+            delta=points_earned,
+            reason="reward_redemption_scan",
+            meta_data={"reward_id": qr_content}
+        )
+        db.add(log)
+        venue.points_balance += points_earned
+        
+        await db.commit()
+        
+        return ValidateRewardResponse(
+            success=True,
+            message=val_result["message"],
+            points_earned=points_earned
+        )
+        
+    except ValueError:
+        return ValidateRewardResponse(
+            success=False, 
+            message="Formato de código inválido para recompensa."
+        )
 
 
 

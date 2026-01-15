@@ -75,6 +75,9 @@ class VenueCreate(BaseModel):
     
     operational_status: Optional[str] = None
     is_operational: Optional[bool] = None
+    
+    # Menú / Cartas (Gamificación)
+    menu_media_urls: Optional[List[str]] = None
 
     # Attributes
     connectivity_features: Optional[List[str]] = []
@@ -198,6 +201,8 @@ class VenueB2BDetail(BaseModel):
     noise_level: Optional[str] = None
     
     points_balance: int = 0
+    menu_media_urls: Optional[List[str]] = None
+    menu_last_updated_at: Optional[datetime] = None
     recent_activity: List[ActivityItem] = []
     
     created_at: datetime

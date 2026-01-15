@@ -131,7 +131,30 @@ async def read_me(
         
     final_roles = [role_name] if role_name else ["APP_USER"]
 
-    print(f"DEBUG: /me -> Email: {final_email}, Role: {role_name}, Username: {final_username}")
+    # --- DYNAMIC COUNTERS (Logic Fix) ---
+    # Calc reviews_count
+    from app.models.reviews import Review
+    from app.models.checkins import Checkin
+    from sqlalchemy import func
+    
+    # 1. Reviews Count
+    count_reviews_query = select(func.count()).select_from(Review).where(
+        Review.user_id == (row["id"] if row else current_user_id),
+        Review.deleted_at.is_(None)
+    )
+    reviews_count = await db.scalar(count_reviews_query) or 0
+    
+    # 2. Verified Checkins Count
+    count_checkins_query = select(func.count()).select_from(Checkin).where(
+        Checkin.user_id == (row["id"] if row else current_user_id),
+        Checkin.status == 'confirmed'
+    )
+    verified_checkins_count = await db.scalar(count_checkins_query) or 0
+    
+    # 3. Photos Count (Placeholder logic or simple count from reviews if applicable, for now 0 or static)
+    photos_count = 0 
+
+    print(f"DEBUG: /me -> Email: {final_email}, Role: {role_name}, Username: {final_username}, Reviews: {reviews_count}")
 
     return ProfileResponse(
         id=row["id"] if row else current_user_id,
@@ -139,10 +162,28 @@ async def read_me(
         points_current=row["points_current"] if row else 0,
         username=final_username, 
         email=final_email,
-        avatar_url=row.get("avatar_url") if row else None, # FIX: Safe access
+        full_name=row.get("full_name") if row else None,
+        avatar_url=row.get("avatar_url") if row else None,
         role_id=role_id,
         role_name=role_name,
-        roles=final_roles
+        roles=final_roles,
+        
+        # New Fields Mapping
+        national_id=row.get("national_id") if row else None,
+        birth_date=str(row.get("birth_date")) if row and row.get("birth_date") else None,
+        gender=row.get("gender") if row else None,
+        is_influencer=row.get("is_influencer") if row else False,
+        favorite_cuisines=row.get("favorite_cuisines") if row and row.get("favorite_cuisines") else [],
+        price_preference=row.get("price_preference") if row else None,
+        preferences=row.get("preferences") if row and row.get("preferences") else {},
+        referral_code=row.get("referral_code") if row else None,
+        website=row.get("website") if row else None,
+        bio=row.get("bio") if row else None,
+        
+        # Counters
+        reviews_count=reviews_count,
+        photos_count=photos_count,
+        verified_checkins_count=verified_checkins_count
     )
 
 
@@ -204,10 +245,29 @@ async def update_me(
         points_current=row["points_current"],
         username=username, 
         email=email,
+        full_name=row.get("full_name"),
         avatar_url=row.get("avatar_url"),
         role_id=role_id,
         role_name=role_name,
-        roles=final_roles
+        roles=final_roles,
+        
+        # New Fields
+        national_id=row.get("national_id"),
+        birth_date=str(row.get("birth_date")) if row.get("birth_date") else None,
+        gender=row.get("gender"),
+        is_influencer=row.get("is_influencer") or False,
+        favorite_cuisines=row.get("favorite_cuisines") or [],
+        price_preference=row.get("price_preference"),
+        preferences=row.get("preferences") or {},
+        referral_code=row.get("referral_code"),
+        website=row.get("website"),
+        bio=row.get("bio"),
+        
+        # Counters (Simple return 0 or logic reuse? Reuse logic preferred but complex here. Let's return basics)
+        # Ideally we should extract the "Get Profile" logic to a service function.
+        reviews_count=row.get("reviews_count") or 0,
+        photos_count=row.get("photos_count") or 0,
+        verified_checkins_count=row.get("verified_checkins_count") or 0
     )
 
 
@@ -294,5 +354,50 @@ async def get_my_favorites(
     result = await db.execute(stmt)
     venue_ids = result.scalars().all()
     return venue_ids
+
+
+# --- REFERRAL & AMBASSADOR ENDPOINTS (V12.4) ---
+
+from app.services.referral_service import referral_service
+
+@router.post("/me/referral/claim")
+async def claim_referral(
+    referral_code: str,
+    db: Annotated[AsyncSession, Depends(deps.get_db)],
+    current_user_id: Annotated[deps.UUID, Depends(deps.get_current_user_id)],
+):
+    """
+    Canjea un código de referido para vincular al usuario con su referente.
+    Requerimiento: 'Conecta tu Ciudad'.
+    """
+    # 1. Verificar si ya tiene referente
+    profile_res = await db.execute(select(Profile).where(Profile.id == current_user_id))
+    profile = profile_res.scalar_one_or_none()
+    
+    if profile and profile.referred_by_user_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Ya has canjeado un código de referido.")
+
+    # 2. Procesar vía servicio
+    result = await referral_service.claim_referral_code(db, current_user_id, referral_code)
+    
+    if result["status"] == "error":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=result["message"])
+        
+    await db.commit()
+    return result
+
+@router.get("/me/ambassador")
+async def get_ambassador_status(
+    db: Annotated[AsyncSession, Depends(deps.get_db)],
+    current_user_id: Annotated[deps.UUID, Depends(deps.get_current_user_id)],
+):
+    """
+    Obtiene el estatus de embajador basado en locales referidos.
+    Misión Especial: 'Embajador de Eventos'.
+    """
+    status = await referral_service.check_ambassador_status(db, current_user_id)
+    return status
 
 
